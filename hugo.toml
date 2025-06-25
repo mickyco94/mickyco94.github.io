@@ -1,6 +1,6 @@
-baseURL = 'https://example.org/'
+baseURL = 'https://mickyco94.github.io/'
 languageCode = 'en-us'
-title = 'My New Hugo Site'
+title = 'mickys blog'
 [module]
   [[module.imports]]
     path = "github.com/hugo-sid/hugo-blog-awesome"
