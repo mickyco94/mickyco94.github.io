@@ -1,12 +1,11 @@
 +++
 date = '2025-06-28T18:41:59+01:00'
-draft = true
 title = 'Pipe Part 1: Tokeniser'
 +++
 
 I recently stumbled across this [post](https://austinhenley.com/blog/challengingprojects.html) - which is a pretty good list of cool things to work through. It reminded me that I am yet to write a compiler for a simple programming language. This kind of problem is widely agreed as a good learning exercise for any software engineer. It spans across a lot of cool different areas like tokenising, parsing and using making use of [recursive descent parsing](https://en.wikipedia.org/wiki/Recursive_descent_parser).
 
-A project I have always been fond of is [Bento](https://warpstreamlabs.github.io/bento/) (formerly known as Benthos but renamed due to some corporate meddling), it's a pretty cool lightweight way to write stream processing applications. One simply defines some `YAML` with configuration for various [inputs](https://warpstreamlabs.github.io/bento/docs/components/inputs/about) and [outputs](https://warpstreamlabs.github.io/bento/docs/components/outputs/about) and [processors](https://warpstreamlabs.github.io/bento/docs/components/processors/about) sitting in between. This lets developers write something _like_ code to glue together their ETL pipelines without relying on vendors providing integrations between the 9000+ disconnected systems. 
+A project I have always been fond of is [Bento](https://warpstreamlabs.github.io/bento/) (formerly known as Benthos but renamed due to some corporate meddling). It's a pretty cool, lightweight way to write stream processing applications. One simply defines some `YAML` with configuration for various [inputs](https://warpstreamlabs.github.io/bento/docs/components/inputs/about) and [outputs](https://warpstreamlabs.github.io/bento/docs/components/outputs/about) and [processors](https://warpstreamlabs.github.io/bento/docs/components/processors/about) sitting in between. This lets developers write something _like_ code to glue together their ETL pipelines without relying on vendors providing integrations between the 9000+ disconnected systems. 
 
 Where it loses its appeal to me is when you _really_ start to lean on it. Benthos is a static binary with the logic driven entirely by YAML and some in-line scripting provided by [Bloblang](https://warpstreamlabs.github.io/bento/docs/guides/bloblang/about). Unless your data sources and sinks are perfectly mapped 1:1 in terms of structure (good luck pal) you are going to have to leverage this at some point. Impressive as it is, when it comes to relying on stuff in production I personally get a bit apprehensive when my critical pipeline is relying on scripts without typing embedded inside YAML. 
 
@@ -14,7 +13,7 @@ So, wouldn't it be cool if we had something strongly typed and unit testable? Ad
 
 Alright, let's scope this thing. The likelihood of a weekend coding project being completed is inversely proportional to it's level of aspiration.
 
-We're going to write a fairly basic language, with limited control flow. Here's an example of what for now I am calling `pipe` implementing the first example of the landing page of the Bento docs:
+We're going to write a fairly basic language, with limited control flow. Here's an example of, what for now I am calling `pipe`, implementing the first example from the landing page of the Bento docs:
 
 ```haskell
 import GCP
@@ -53,7 +52,7 @@ def main():
     result = process(input)
     write_output(result)
 ```
-The other thing of note is what has inspired the language name, is the use of `|`. This is something in between function composition in Haskell and `cat file.txt | head -n 5`. The idea here is that `"foo" | to_lower | add "bar` compiles to something like:
+The other thing of note is what has inspired the language name, is the use of `|`. This is obviously inspired by some bash-fu we regularly see like: `cat file.txt | head -n 5`. The idea here is that `"foo" | to_lower | add "bar` compiles to something like:
 ```python
 add(to_lower("foo"), "bar")
 ```
@@ -65,7 +64,13 @@ with_bar = add(lowered, "bar")
 return with_bar
 ```
 
-Pretty good idea right? I don't know, maybe... I'm not convinced. But let's find out together. One thing I can see for sure is using positional arguments getting awkward, but we can maybe work around that. To prototype this quickly we're going to emit python, to make this much harder (but more fun) we are going to write it in Haskell. If it actually turns out to be useful this we can emit something a bit better like C.
+Usually languages solve this with something like:
+```js
+let x = input.lower().add("bar")
+```
+but this is cooler because pipes.
+
+Pretty good idea right? I don't know, maybe... I'm not convinced. But let's find out together. One thing I can see for sure is using positional arguments getting awkward, but we can maybe work around that. To prototype this quickly we're going to emit python, to make this much harder (but more fun) we are going to write our compiler in Haskell. If it actually turns out to be useful this we can emit something a bit better like C.
 
 Note that `|` is a data pipe, we pass objects through it not necessarily functions. This is maybe something I can add later but for now I don't want to open the can of worms that is function composition and the implications that has for the type system. Additionally, data pipes seem like a natural fit for the problem this space language is being built for.
 
@@ -76,8 +81,6 @@ First part of anything like this is going to be our tokeniser, let's look at one
 ```
 fn input = GCP.pubsub "foo" "bar" | JSON.parse
 ```
-First thing to consider is that because we make function calls in a Haskell style way we consider whitespace as a token! This isn't true in other languages like JavaScript for example.
-
 To start with we just want to tokenise simple program like:
 ```
 fn input :: () -> String = STD.in "\n"
@@ -174,9 +177,9 @@ OK, for keywords we can just add new case like this. Let's continue to do that e
   | "fn" `isPrefixOf` s = Keyword Func : tokenise (drop 2 s)
   | "import" `isPrefixOf` s = Keyword Import : tokenise (drop 6 s)
 ```
-(`drop`)[http://www.zvon.org/other/haskell/Outputprelude/drop_f.html] is just a way to remove the first `n` characters from the start of the string. So for `-> Foo` the branch we follow produces `Keyword RArrow: tokenise " Foo"`.
+[`drop`](http://www.zvon.org/other/haskell/Outputprelude/drop_f.html) is just a way to remove the first `n` characters from the start of the string. So for `-> Foo` the branch we follow produces `Keyword RArrow: tokenise " Foo"`.
 
-The only remaining ones we have are Integers (12345), String literals "Hey I'm a string!" and identifiers. Identifiers is a loose term here, because it can mean a bunch of things. Whether an identifier is a function name or variable is entirely contextual so at the point of parsing we can only say that it's an identifier.
+The only remaining ones we have are Integers (`12345`), String literals (`"Hey I'm a string!"`) and identifiers. Identifiers is a loose term here, because it can mean a bunch of things. Whether an identifier is a function name or variable is entirely contextual so at the point of parsing we can only say that it's an identifier.
 
 The rest of our logic looks like this:
 ```haskell
@@ -211,6 +214,6 @@ There are some improvements we can make here like:
 - Better error handling
 - More extensibility for new Tokens
 - Breaking apart our one big function
-- More idiomatic parsing using [megaparsec](https://markkarpov.com/tutorial/megaparsec.html)
+- More idiomatic parsing using [Megaparsec](https://markkarpov.com/tutorial/megaparsec.html)
 
 But we'll leave those for a later day, at this point we can move onto a parser/emitter.

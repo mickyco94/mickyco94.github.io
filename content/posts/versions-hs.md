@@ -4,7 +4,7 @@ draft = true
 title = 'Versions Hs'
 +++
 
-Functional programming has always been an area that sounded pretty interesting to me, its something I have had some limited experience in commercially due to my short tenure at Twitter (thanks Elon). One can spin up a hello world and run through some tutorials and demonstrative kiddy-playground code and it seems great! But these are pretty _academic_ and its difficult to see how this would actually work in a more _real_ environment, larger codebase with lots of IO from databases and message queues etc. 
+Functional programming has always been an area that sounded pretty interesting to me, its something I have had some limited experience in commercially due to my short tenure at Twitter (thanks Elon). One can spin up a hello world and run through some tutorials and demonstrative kiddy-playground code and it seems great! But these are pretty _academic_. It's difficult to see how this would actually work in a more _real_ environment, larger codebase with lots of IO from databases and message queues etc. 
 
 Today we're going to take a practical problem that I worked through in my day job that is (in my opinion) pretty interesting, lends itself to what I *think* functional programming is good for and try to implement it in Haskell. 
 
@@ -38,24 +38,26 @@ This is true for a git commit, but of course some fields like repository don't a
 
 We can define this in Haskell using records:
 ```haskell
-data Metadata
-  = GitMetadata {repository :: String, branches :: [String], author :: String}
-  | DockerMetadata {repository :: String, tags :: [String]}
-  deriving (Show, Eq)
-
-data ResourceType = Git | Docker deriving (Show, Eq)
-
+-- | Version represents an immutable instance of a resource that is tracked in the system
 data Version
-  = Version
-  { versionId :: String
-  , resourceType :: ResourceType
-  , resource :: String
-  , metadata :: Metadata
-  , createdAt :: UTCTime
-  }
+  = Git
+      { versionId :: String
+      , resource :: String
+      , repository :: String
+      , branches :: [String]
+      , author :: String
+      , createdAt :: UTCTime
+      }
+  | Docker
+      { versionId :: String
+      , resource :: String
+      , repository :: String
+      , tags :: [String]
+      , createdAt :: UTCTime
+      }
   deriving (Show, Eq)
 ```
-Here we have a version of a particular `resourceType`, either `Git` or `Docker` (we can add more later). A possible issue here is that we have two ways to discriminate between version types here, `metadata` and `resourceType` fields to achieve both. You can technically have a `Version` with `resourceType = Docker` and store `GitMetadata`. We can revisit this.
+Here we have a version either `Git` or `Docker` (we can add more later). We have some common fields, but we can think about how to solve that problem later. 
 
 An interesting discovery from this fairly simple endeavour is a restriction on field names, you might have noticed that we renamed our `id` field to `versionId`, this is so that we don't conflict with [Prelude.id](http://www.zvon.org/other/haskell/Outputprelude/id_f.html) from the standard library.
 
@@ -72,28 +74,49 @@ my_resource:
   type: git
   repository: github.com/mickyco94/versions-hs
   selectors:
-    branch: master
-    author: mickyco94
+    - branches: [master]
+    - author: mickyco94
 ```
 Maybe in our hypothetical CI/CD pipeline we want to trust only commits from master (and rightfully those by me) to be pushed into production. 
 
-So lets write some kind of parser for this and apply it to our versions, should be pretty simple:
-```
-data Selector = HasBranch [String] | Author String
+We can make use of this by defining corresponding types and using pattern matching. Pattern matching is another thing that these functional programming kids go crazy for, in this case where we have polymorphism its pretty handy! It helps us explicitly cover cases within our type system that is more awkward in other languages. We can concisely express something like the `branches` selector only working against a version of type `Git`:
+```haskell
+data Selector
+  = HasBranch [String]
+  | Author String
+  | After UTCTime
 
 matches :: Selector -> Version -> Bool
-matches (HasBranch s) Version{metadata = GitMetadata{branches = b}} = any (`elem` b) s
-matches (Author a) Version{metadata = GitMetadata{author = ga}} = ga == a
+matches (HasBranch s) Git{branches = b} = any (`elem` b) s
+matches (Author a) Git{author = ga} = ga == a
+matches (After time) Git{createdAt = ts} = ts > time
+matches (After time) Docker{createdAt = ts} = ts > time
 matches _ _ = False
-```
 
-<!-- 
-Expand on parsing, how it applies to YAML parsing and then use a matches that takes a [Selector]
--->
+```
+Hell yeah, thats pretty clean. In something like python we'd be doing some big swich statement or using reflection to match things together, but in Haskell we can do this in a few lines.
+
+#### Typeclasses
+
+The hawkish purists reading might be tutting already at the duplication here:
+```haskell
+matches (After time) Git{createdAt = ts} = ts > time
+matches (After time) Docker{createdAt = ts} = ts > time
+```
+An alternative here is to make use of `typeclasses` which is something like an interface and implement it for both our `Git` and `Docker` types, treating it as the generic typeclass. This however leads to another layer of abstraction and a medium amount of boilerplate. Its actually easier (for now at least) for us to just define an implementation for each type. 
+
+## Less fun stuff
+
+Ok, ok we said we weren't going to go purely academic so lets at least simulate some I/O here. These versions aren't types defined in memory, they are stored in a database somewhere. That means to use any of this, we need to pull them out of somewhere and parse them.
+
+For the purposes of this, I/O is I/O. We're just going to read it from a file, that is principle the same as reading from a database. Just a slightly different implementation and some boilerplate. Maybe we can get into using an actual database later.
+
+So we're going to decode two things:
+- Selectors
+- Versions
 
 #### References
 
 - https://www.haskell.org/get-started/
 - https://learnyouahaskell.github.io/chapters.html
-- 
 
