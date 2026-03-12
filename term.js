@@ -52,6 +52,7 @@ function ls(args) {
   for (const f of files) {
     if (!f.name)
       continue
+    const { } = f;
     s += f.inode_id.toString().padStart(2, 0) + " ";
     s += f.inode.type === 1 ? "DIR " : "FILE"
     s += f.inode.size.toString().padStart(2, 0) + " ";
@@ -116,8 +117,10 @@ function _stat(args) {
   if (fd === -1) {
     return "not found\n";
   }
-  const { type, size, offset } = fd;
-  return `${type === 1 ? "DIR " : "FILE"} ${size} ${offset}\n`
+  const { id, type, size, b1, b2, b3, ctime, atime, mtime } = fd;
+  const blockCount = [b1, b2, b3].filter(x => x > 0).length;
+  const typeD = type === 1 ? "DIR" : "FILE";
+  return `${id} ${typeD} ${size} ${blockCount} ${ctime} ${atime} ${mtime}\n`
 }
 
 function command(cmd) {

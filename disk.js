@@ -21,38 +21,12 @@ const SUPERBLOCK = {
   blocks: 2 << 7,
   inodes: 256,
   block_size: 2 << 15,
-  root_inode: 0,
-  current_inode: 0,
-  current_block: 0,
-  inode_table_size: 256 * 12,
+  root_inode: 1,
+  current_inode: 1, // 0 is the empty value
+  current_block: 1, // 0 represents empty
+  inode_table_size: 256 * 16,
 };
 
-// inode structure:
-// [t][s][[b][of]][b][of][b][of]]
-// - type (1 byte)
-// - size (2 bytes) 
-// - blocks (9 bytes)
-//   - block (1 byte)
-//   - offset (2 bytes)
-// Total size: 1+2+9 = 12. We can add more for created_at etc.
-const INODE_SIZE = 12;
-const FILE = 0;
-const DIR = 1;
-
-function write_inode({ id, type, size, blocks }) {
-  const [size_b1, size_b2] = uint16_little_endian(size);
-  const start = id * INODE_SIZE;
-  DISK[start] = type;
-  DISK[start + 1] = size_b1;
-  DISK[start + 2] = size_b2;
-  for (let i = 0; i < blocks.length; i++) {
-    const { block, offset } = blocks[i];
-    const [offset_b1, offset_b2] = uint16_little_endian(offset);
-    DISK[start + 3 + (i * 3)] = block;
-    DISK[start + 3 + (i * 3) + 1] = offset_b1;
-    DISK[start + 3 + (i * 3) + 2] = offset_b2;
-  }
-}
 
 function next_block() {
   return ++SUPERBLOCK.current_block;
@@ -62,23 +36,90 @@ function next_inode() {
   return ++SUPERBLOCK.current_inode
 }
 
+
+const EPOCH = 786672000;
+let NOW = EPOCH;
+function timer() {
+  NOW += 1
+  setTimeout(timer, 1000);
+}
+timer()
+
+function now() {
+  return NOW - EPOCH;
+}
+
+// inode structure:
+// [uid][t][l][s][[b][b][b][ctime][atime][mtime][other]
+// - id (1 byte)
+// - type (1 byte)
+// - link count (1 byte)
+// - size (2 bytes) 
+// - block (1 byte)
+// - block (1 byte)
+// - block (1 byte)
+// - created_time(2 bytes)
+// - access_time (2 bytes)
+// - modified time (2 bytes)
+// - reserved (2 bytes)
+// Total size: 1+2+3+2+2 = 10. We can add more for created_at etc.
+const INODE_SIZE = 16;
+const FILE = 0;
+const DIR = 1;
+
+function write_inode({ id, type, link, size, b1, b2, b3, ctime, atime, mtime }) {
+  const [size_b1, size_b2] = uint16_little_endian(size);
+  const [ctime_b1, ctime_b2] = uint16_little_endian(ctime);
+  const [atime_b1, atime_b2] = uint16_little_endian(atime);
+  const [mtime_b1, mtime_b2] = uint16_little_endian(mtime);
+  const start = id * INODE_SIZE;
+  DISK[start] = id;
+  DISK[start + 1] = type;
+  DISK[start + 2] = link;
+  DISK[start + 3] = size_b1;
+  DISK[start + 4] = size_b2;
+  DISK[start + 5] = b1;
+  DISK[start + 6] = b2;
+  DISK[start + 7] = b3;
+  DISK[start + 8] = ctime_b1;
+  DISK[start + 9] = ctime_b2;
+  DISK[start + 10] = atime_b1;
+  DISK[start + 11] = atime_b2;
+  DISK[start + 12] = mtime_b1;
+  DISK[start + 13] = mtime_b2;
+  DISK[start + 14] = 0;
+  DISK[start + 15] = 0;
+}
+
 function get_inode(id) {
   const start = id * INODE_SIZE;
-  const type = DISK[start];
-  const size = little_endian_uint16([DISK[start + 1], DISK[start + 2]]);
-  const blocks = [];
-  for (let i = 0; i < 3; i++) {
-    const block = DISK[start + 3 + (i * 3)];
-    const offset_b1 = DISK[start + 3 + (i * 3) + 1];
-    const offset_b2 = DISK[start + 3 + (i * 3) + 2];
-    const offset = little_endian_uint16([offset_b1, offset_b2]);
-    blocks.push({ block: block, offset: offset });
-  }
+  const uid = DISK[start];
+  const type = DISK[start + 1];
+  const link = DISK[start + 2]
+  const size_b1 = DISK[start + 3]
+  const size_b2 = DISK[start + 4]
+  const b1 = DISK[start + 5];
+  const b2 = DISK[start + 6];
+  const b3 = DISK[start + 7];
+  const ctime_b1 = DISK[start + 8];
+  const ctime_b2 = DISK[start + 9];
+  const atime_b1 = DISK[start + 10];
+  const atime_b2 = DISK[start + 11];
+  const mtime_b1 = DISK[start + 12];
+  const mtime_b2 = DISK[start + 13];
+  const size = little_endian_uint16([size_b1, size_b2]);
+  const ctime = little_endian_uint16([ctime_b1, ctime_b2]);
+  const atime = little_endian_uint16([atime_b1, atime_b2]);
+  const mtime = little_endian_uint16([mtime_b1, mtime_b2]);
+
+  const new_atime = now();
+  const [new_atime_b1, new_atime_b2] = uint16_little_endian(new_atime);
+  DISK[start + 10] = new_atime_b1;
+  DISK[start + 11] = new_atime_b2;
+
+
   return {
-    id: id,
-    type: type,
-    size: size,
-    blocks: blocks,
+    id: uid, type, link, size, b1, b2, b3, ctime, atime, mtime,
   }
 }
 
@@ -101,10 +142,13 @@ function _create_dir_entry({ name, inode_id }) {
 
 function create_root_dir() {
   const root_inode = {
-    id: 0,
+    id: 1,
     type: DIR,
     size: 2 * ENTRY_SIZE,
-    blocks: [{ block: 0, offset: 0 }],
+    b1: 1,
+    ctime: now(),
+    atime: now(),
+    mtime: now(),
   }
   write_inode(root_inode);
   const dot = _create_dir_entry({ name: ".", inode_id: root_inode.id })
@@ -114,7 +158,6 @@ function create_root_dir() {
 }
 
 function read_dir_file(buffer) {
-  console.log(buffer);
   const files = [];
   for (let i = 0; i < buffer.length; i += ENTRY_SIZE) {
     let name = ""
@@ -136,8 +179,9 @@ function find_inode(paths) {
   let current_inode = SUPERBLOCK.root_inode;
   for (const path of paths) {
     const inode = get_inode(current_inode);
+    console.log(path, inode);
     if (inode === -1) {
-      console.error("Couldn't find inode");
+      console.error("couldn't find inode");
       return -1;
     }
     const { size } = inode;
@@ -175,7 +219,6 @@ export function read_dir(path) {
     return -1;
   }
   const files = read_dir_file(buffer);
-  console.log(files);
   return files;
 }
 
@@ -189,7 +232,7 @@ export function mkdir(path) {
   }
   const inode_id = next_inode();
   const block = next_block();
-  const inode = { id: inode_id, type: DIR, size: 2 * ENTRY_SIZE, blocks: [{ block: block, offset: 0 }] };
+  const inode = { id: inode_id, type: DIR, size: 2 * ENTRY_SIZE, b1: block, ctime: now(), atime: now(), mtime: now() };
   write_inode(inode);
   const buffer = [
     ..._create_dir_entry({ name: ".", inode_id: inode_id }),
@@ -209,53 +252,57 @@ export function create(path) {
     return -1;
   }
   const block = next_block();
-  const inode = { id: next_inode(), type: FILE, size: 0, blocks: [{ block: block, offset: 0 }] };
-  console.log("Creating inode:", inode, "for file", path);
+  const inode = {
+    id: next_inode(),
+    type: FILE,
+    link: 0,
+    size: 0,
+    b1: block,
+    b2: 0,
+    b3: 0,
+    ctime: now(),
+    atime: now(),
+    mtime: now(),
+  };
   write_inode(inode);
   const buffer = _create_dir_entry({ name: name, inode_id: inode.id });
   append(parent_inode, buffer);
   return inode;
 }
 
-export function read({ blocks }, buffer, size) {
+export function read({ b1, b2, b3 }, buffer, size) {
   const n = buffer.length;
   if (n > size) {
     return -1;
   }
+  const blocks = [b1, b2, b3];
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
-    const { block, offset } = blocks[block_idx];
-    buffer[i] = DISK[SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + offset + i];
+    const block = blocks[block_idx];
+    buffer[i] = DISK[SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i];
   }
 
   return size;
 }
 
-export function write({ size, blocks }, buffer) {
+export function write({ b1, b2, b3 }, buffer) {
   const n = buffer.length;
-  if (n > size) {
-    return -1;
-  }
+  const blocks = [b1, b2, b3];
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
-    if (block_idx > blocks.length - 1) {
-      console.error("not enough blocks", n, blocks, block_idx);
-      return -1;
-    }
-    const { block, offset } = blocks[block_idx];
-    const disk_index = SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + offset + i;
+    const block = blocks[block_idx];
+    const disk_index = SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
   return n;
 }
 
 export function append(inode, buffer) {
-  console.log(inode, buffer);
-  const { blocks, size } = inode;
-  const { offset } = blocks.at(0);
+  const { b1, b2, b3, size } = inode;
+  const blocks = [b1, b2, b3];
   const n = buffer.length;
-  if (offset + n >= SUPERBLOCK.block_size) {
-    console.error("block full");
+  if (n >= SUPERBLOCK.block_size * 3) {
+    console.error("blocks full");
     return -1;
   }
   for (let i = 0; i < n; i++) {
@@ -264,16 +311,16 @@ export function append(inode, buffer) {
       console.error("not enough blocks", n, blocks, block_idx);
       return -1;
     }
-    const { block, offset } = blocks[block_idx];
+    const block = blocks[block_idx];
 
-    const disk_index = SUPERBLOCK.inode_table_size + size + (block * SUPERBLOCK.block_size) + offset + i;
+    const disk_index = SUPERBLOCK.inode_table_size + size + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
   const updated_inode = {
     ...inode,
     size: size + n,
+    mtime: now(),
   }
-  console.log("Updating inode", updated_inode);
   write_inode(updated_inode);
   return n;
 }
@@ -289,3 +336,4 @@ export function stat(path) {
 }
 
 create_root_dir();
+console.log(get_inode(1));
