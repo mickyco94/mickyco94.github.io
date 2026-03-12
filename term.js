@@ -1,10 +1,14 @@
-import { open, read_dir, read, create, write, dump_inodes } from './disk.js';
+import { open, read_dir, read, create, write, mkdir, stat } from './disk.js';
 import { string_to_ascii } from './ascii.js'
 const WELCOME = `Welcome to my stupid website`;
 
+let INPUT_START = 0;
+const PROMPT = "~ ";
+
 const term = document.getElementById("terminal");
-term.value = WELCOME + "\n" + ">>> ";
+term.value = WELCOME + "\n" + PROMPT;
 term.selectionStart = term.selectionEnd = term.value.length;
+INPUT_START = term.selectionStart + 1;
 term.focus();
 term.addEventListener("blur", () => term.focus());
 
@@ -18,21 +22,29 @@ term.addEventListener("blur", () => term.focus());
 // env vars?
 
 function input() {
-  return term.value.split("\n")?.at(-1)?.replace(">>> ", "");
+  return term.value.split("\n")?.at(-1)?.replace(PROMPT, "");
 }
 
 term.addEventListener("keydown", (event) => {
+  // Prevent writing if selected before the prompt
   if (event.key === "Enter") {
     event.preventDefault();
     const cmd = input();
     term.value += "\n";
     command(cmd);
-    term.value += ">>> ";
+    term.value += PROMPT;
+    INPUT_START = term.selectionStart + 1;
+  }
+  if (event.key === "Backspace") {
+    if (term.selectionStart < INPUT_START) {
+      event.preventDefault();
+    }
   }
 });
 
-function ls() {
-  const files = read_dir();
+function ls(args) {
+  const path = args.length > 0 ? args[0] : ".";
+  const files = read_dir(path);
   let s = "";
   for (const f of files) {
     if (!f.name)
@@ -71,6 +83,12 @@ function cat(args) {
   return buffer.map(x => String.fromCharCode(x)).join("") + "\n";
 }
 
+function make_dir(args) {
+  const path = args[0]
+  mkdir(path);
+  return "";
+}
+
 function clear() {
   term.value = "";
 }
@@ -88,12 +106,24 @@ function touch(args) {
   write(fd, buffer);
 }
 
+function _stat(args) {
+  if (!args)
+    return "";
+  const path = args[0];
+  const fd = stat(path);
+  if (fd === -1) {
+    return "not found\n";
+  }
+  const { type, size, offset } = fd;
+  return `${type === 1 ? "DIR " : "FILE"} ${size} ${offset}\n`
+}
+
 function command(cmd) {
   const split = cmd.trim().split(" ");
   const bin = split[0];
   const args = split.slice(1);
   if (bin == "ls") {
-    term.value += ls();
+    term.value += ls(args);
   }
   if (bin === "echo") {
     term.value += echo(args);
@@ -107,8 +137,11 @@ function command(cmd) {
   if (bin === "touch") {
     touch(args);
   }
-  if (bin === "debug") {
-    dump_inodes();
+  if (bin === "mkdir") {
+    make_dir(args);
+  }
+  if (bin === "stat") {
+    term.value += _stat(args)
   }
 }
 

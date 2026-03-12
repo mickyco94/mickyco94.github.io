@@ -69,6 +69,7 @@ const MAX_ENTRY_NAME_SIZE = 14;
 
 // Each entry consists of:
 // [-- name 14 bytes --][--occupied--][--inode--]
+// I can remove occupied if I have an unbounded file size.
 
 function write_dir_entry({ name, inode_id, offset }) {
   for (let i = 0; i < MAX_ENTRY_NAME_SIZE; i++) {
@@ -91,7 +92,6 @@ function create_root_dir() {
 function _find_dir_slot({ offset }) {
   for (let i = 0; i < DIR_ENTRIES; i++) {
     const occupied = DISK[offset + MAX_ENTRY_NAME_SIZE + (i * ENTRY_SIZE)]
-    console.log(i, occupied);
     if (!occupied) {
       return i;
     }
@@ -99,9 +99,12 @@ function _find_dir_slot({ offset }) {
   return -1;
 }
 
-export function read_dir() {
-  // Size of directories is fixed... A little awkward
-  const { size, offset } = get_inode(SUPERBLOCK.root_inode);
+export function read_dir(path) {
+  const parts = path.split("/");
+  const inode_id = find_inode(parts);
+  const { size, offset, type } = get_inode(inode_id);
+  if (type === FILE)
+    return -1
   const files = [];
   for (let i = 0; i < 7; i++) {
 
@@ -125,15 +128,6 @@ export function read_dir() {
 }
 
 
-export function dump_inodes() {
-  for (let i = 0; i < SUPERBLOCK.inodes; i++) {
-    const { type, size, offset } = get_inode(i)
-    if (!size)
-      continue
-    console.log(`"${type === 1 ? "DIR" : "FILE"} ${size} ${offset}`);
-  }
-}
-
 function read_dir_file(buffer) {
   const files = [];
   for (let i = 0; i < buffer.length; i += ENTRY_SIZE) {
@@ -153,7 +147,6 @@ function read_dir_file(buffer) {
 }
 
 function find_inode(paths) {
-  // paths is an array like [".", "folder"]
   let current_inode = SUPERBLOCK.root_inode;
   for (const path of paths) {
     const { size, offset } = get_inode(current_inode);
@@ -181,7 +174,13 @@ export function mkdir(path) {
   const folder = parts.at(-1);
   const parent_id = find_inode(parts.slice(0, -1));
   const parent_inode = get_inode(parent_id);
+  if (parent_inode.type !== DIR) {
+    return -1;
+  }
   const slot = _find_dir_slot(parent_inode);
+  if (slot === -1) {
+    return -1;
+  }
   const inode_id = next_inode();
   write_inode({ id: inode_id, type: DIR, size: DIR_SIZE, offset: SUPERBLOCK.current_end });
   write_dir_entry({ name: folder, inode_id: inode_id, offset: parent_inode.offset + (slot * ENTRY_SIZE) });
@@ -191,8 +190,10 @@ export function mkdir(path) {
 }
 
 export function create(path, size) {
-  const name = path.split("/").at(-1);
-  const parent_inode = get_inode(SUPERBLOCK.root_inode);
+  const parts = path.split("/");
+  const name = parts.at(-1);
+  const parent_id = find_inode(parts.slice(0, -1));
+  const parent_inode = get_inode(parent_id);
   if (parent_inode.type !== DIR) {
     return -1;
   }
@@ -242,8 +243,14 @@ export function write({ offset, size }, buffer) {
   return size;
 }
 
-function stat(path) {
-
+// Returns an inode
+export function stat(path) {
+  const parts = path.split("/");
+  const inode_id = find_inode(parts);
+  if (inode_id === -1) {
+    return -1;
+  }
+  return get_inode(inode_id);
 }
 
 create_root_dir();
