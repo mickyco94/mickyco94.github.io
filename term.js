@@ -1,4 +1,4 @@
-import { open, read_dir, read, create, write, mkdir, stat } from './disk.js';
+import { read_dir, read, create, append, mkdir, stat } from './disk.js';
 import { string_to_ascii } from './ascii.js'
 const WELCOME = `Welcome to my stupid website`;
 
@@ -45,14 +45,16 @@ term.addEventListener("keydown", (event) => {
 function ls(args) {
   const path = args.length > 0 ? args[0] : ".";
   const files = read_dir(path);
+  if (files === -1) {
+    return "error";
+  }
   let s = "";
   for (const f of files) {
     if (!f.name)
       continue
     s += f.inode_id.toString().padStart(2, 0) + " ";
-    s += f.inode.type === 1 ? "DIR  " : "FILE "
-    s += f.inode.size.toString().padStart(4, 0) + " ";
-    s += f.inode.offset.toString().padStart(5, 0) + " ";
+    s += f.inode.type === 1 ? "DIR " : "FILE"
+    s += f.inode.size.toString().padStart(2, 0) + " ";
     s += f.name
     s += '\n';
   }
@@ -68,7 +70,7 @@ function echo(arg) {
 
 function cat(args) {
   const path = args[0];
-  const fd = open(path);
+  const fd = stat(path);
   console.log(fd);
   if (fd === -1) {
     console.error("couldn't find file", path);
@@ -103,7 +105,7 @@ function touch(args) {
   }
   const buffer = string_to_ascii(content);
   console.log("Writing", buffer, content);
-  write(fd, buffer);
+  append(fd, buffer);
 }
 
 function _stat(args) {
