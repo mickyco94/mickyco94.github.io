@@ -18,15 +18,14 @@ function little_endian_uint16(bytes) {
 
 const SUPERBLOCK = {
   fs: "toy",
-  blocks: 2 << 7,
-  inodes: 256,
-  block_size: 2 << 15,
+  blocks: 2 << 15,
+  inodes: 256, // This spacing is odd
+  block_size: 256,
   root_inode: 1,
   current_inode: 1, // 0 is the empty value
   current_block: 1, // 0 represents empty
   inode_table_size: 256 * 16,
 };
-
 
 function next_block() {
   return ++SUPERBLOCK.current_block;
@@ -36,8 +35,7 @@ function next_inode() {
   return ++SUPERBLOCK.current_inode
 }
 
-
-const EPOCH = 786672000;
+export const EPOCH = 786672000;
 let NOW = EPOCH;
 function timer() {
   NOW += 1
@@ -45,7 +43,7 @@ function timer() {
 }
 timer()
 
-function now() {
+export function now() {
   return NOW - EPOCH;
 }
 
@@ -179,7 +177,6 @@ function find_inode(paths) {
   let current_inode = SUPERBLOCK.root_inode;
   for (const path of paths) {
     const inode = get_inode(current_inode);
-    console.log(path, inode);
     if (inode === -1) {
       console.error("couldn't find inode");
       return -1;
@@ -219,6 +216,7 @@ export function read_dir(path) {
     return -1;
   }
   const files = read_dir_file(buffer);
+  console.log(files);
   return files;
 }
 
@@ -233,14 +231,19 @@ export function mkdir(path) {
   const inode_id = next_inode();
   const block = next_block();
   const inode = { id: inode_id, type: DIR, size: 2 * ENTRY_SIZE, b1: block, ctime: now(), atime: now(), mtime: now() };
+
+  // Update parent reference
+  const parent_buffer = _create_dir_entry({ name: name, inode_id: inode_id });
+  if (append(parent_inode, parent_buffer) === -1) {
+    return -1;
+  };
   write_inode(inode);
   const buffer = [
     ..._create_dir_entry({ name: ".", inode_id: inode_id }),
     ..._create_dir_entry({ name: "..", inode_id: inode_id }),
   ]
   write(inode, buffer);
-  const parent_buffer = _create_dir_entry({ name: name, inode_id: inode_id });
-  append(parent_inode, parent_buffer);
+
 }
 
 export function create(path) {
@@ -266,7 +269,10 @@ export function create(path) {
   };
   write_inode(inode);
   const buffer = _create_dir_entry({ name: name, inode_id: inode.id });
-  append(parent_inode, buffer);
+  if (append(parent_inode, buffer) === -1) {
+    console.error("failed to write to parent on creation");
+    return -1;
+  }
   return inode;
 }
 
@@ -285,7 +291,8 @@ export function read({ b1, b2, b3 }, buffer, size) {
   return size;
 }
 
-export function write({ b1, b2, b3 }, buffer) {
+export function write(inode, buffer) {
+  const { b1, b2, b3 } = inode
   const n = buffer.length;
   const blocks = [b1, b2, b3];
   for (let i = 0; i < n; i++) {
@@ -294,6 +301,11 @@ export function write({ b1, b2, b3 }, buffer) {
     const disk_index = SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
+  const updated = {
+    ...inode,
+    mtime: now(),
+  }
+  write_inode(updated);
   return n;
 }
 
@@ -306,18 +318,27 @@ export function append(inode, buffer) {
     return -1;
   }
   for (let i = 0; i < n; i++) {
-    const block_idx = Math.floor(i / SUPERBLOCK.block_size);
-    if (block_idx > blocks.length - 1) {
+    const block_idx = Math.floor((size + i) / SUPERBLOCK.block_size);
+    if (block_idx >= blocks.length) {
       console.error("not enough blocks", n, blocks, block_idx);
       return -1;
     }
-    const block = blocks[block_idx];
+    let block = blocks[block_idx];
+    // todo: move this out of the loop.
+    if (block === 0) {
+      console.log("allocating block!");
+      block = next_block();
+      blocks[block_idx] = block;
+    }
 
     const disk_index = SUPERBLOCK.inode_table_size + size + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
   const updated_inode = {
     ...inode,
+    b1: blocks[0],
+    b2: blocks[1],
+    b3: blocks[2],
     size: size + n,
     mtime: now(),
   }
@@ -336,4 +357,3 @@ export function stat(path) {
 }
 
 create_root_dir();
-console.log(get_inode(1));

@@ -157,9 +157,13 @@ function draw_cube() {
 
 }
 
+let state = "cube";
+
 function frame() {
   clear();
-  draw_cube();
+  if (state === "cube") {
+    draw_cube();
+  }
   setTimeout(frame, 1000 / FPS);
 }
 

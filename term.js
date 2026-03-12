@@ -1,12 +1,16 @@
-import { read_dir, read, create, append, mkdir, stat } from './disk.js';
+import { read_dir, read, create, append, mkdir, stat, EPOCH, now } from './disk.js';
 import { string_to_ascii } from './ascii.js'
 const WELCOME = `Welcome to my stupid website`;
 
 let INPUT_START = 0;
-const PROMPT = "~ ";
+let PWD = "/";
+
+const PROMPT = () => {
+  return `${PWD} > `
+}
 
 const term = document.getElementById("terminal");
-term.value = WELCOME + "\n" + PROMPT;
+term.value = WELCOME + "\n" + PROMPT();
 term.selectionStart = term.selectionEnd = term.value.length;
 INPUT_START = term.selectionStart + 1;
 term.focus();
@@ -22,7 +26,7 @@ term.addEventListener("blur", () => term.focus());
 // env vars?
 
 function input() {
-  return term.value.split("\n")?.at(-1)?.replace(PROMPT, "");
+  return term.value.split("\n")?.at(-1)?.replace(PROMPT(), "");
 }
 
 term.addEventListener("keydown", (event) => {
@@ -32,7 +36,7 @@ term.addEventListener("keydown", (event) => {
     const cmd = input();
     term.value += "\n";
     command(cmd);
-    term.value += PROMPT;
+    term.value += PROMPT();
     INPUT_START = term.selectionStart + 1;
   }
   if (event.key === "Backspace") {
@@ -41,6 +45,17 @@ term.addEventListener("keydown", (event) => {
     }
   }
 });
+
+function to_real_time(base) {
+  return new Date((base + EPOCH) * 1000)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d+Z$/, '');
+}
+
+function date() {
+  return to_real_time(now()) + "\n";
+}
 
 function ls(args) {
   const path = args.length > 0 ? args[0] : ".";
@@ -52,11 +67,12 @@ function ls(args) {
   for (const f of files) {
     if (!f.name)
       continue
-    const { } = f;
-    s += f.inode_id.toString().padStart(2, 0) + " ";
-    s += f.inode.type === 1 ? "DIR " : "FILE"
-    s += f.inode.size.toString().padStart(2, 0) + " ";
-    s += f.name
+    const { name, inode: { id, type, size, ctime } } = f;
+    s += id.toString().padStart(2, 0) + " ";
+    s += type === 1 ? "DIR  " : "FILE "
+    s += to_real_time(ctime) + " ";
+    s += size.toString().padStart(2, 0) + " ";
+    s += name
     s += '\n';
   }
   return s;
@@ -123,6 +139,18 @@ function _stat(args) {
   return `${id} ${typeD} ${size} ${blockCount} ${ctime} ${atime} ${mtime}\n`
 }
 
+function cd(args) {
+  if (!args)
+    return "";
+  const path = args[0];
+  const fd = stat(path);
+  if (fd === -1) {
+    return "not found";
+  }
+  PWD = path;
+  return "\n";
+}
+
 function command(cmd) {
   const split = cmd.trim().split(" ");
   const bin = split[0];
@@ -147,6 +175,12 @@ function command(cmd) {
   }
   if (bin === "stat") {
     term.value += _stat(args)
+  }
+  if (bin === "date") {
+    term.value += date();
+  }
+  if (bin === "cd") {
+    term.value += cd(args);
   }
 }
 
