@@ -386,12 +386,87 @@ export function append(inode, buffer) {
   return n;
 }
 
+export function fstat(inode_id) {
+  return get_inode(inode_id);
+}
+
 export function stat(path) {
-  const inode_id = find_inode(path);
-  if (inode_id === -1) {
+  const fd = find_inode(path);
+  return fd === -1 ? -1 : fstat(fd);
+}
+
+function _rm_dir_entry(dir_inode, name) {
+  const { size } = dir_inode;
+  const buffer = new Uint8Array(size);
+  if (read(dir_inode, buffer, size) === -1) {
+    console.log("failed to read buffer");
     return -1;
   }
-  return get_inode(inode_id);
+
+  const files = parse_dir_file(buffer);
+  const idx = files.findIndex(x => x.name === name);
+
+  if (idx === -1) {
+    console.error("Could not find file to remove from dir", name);
+    return -1;
+  }
+
+  const updated_buffer = [
+    ...buffer.slice(0, idx * ENTRY_SIZE), // up to the entry
+    ...buffer.slice((idx + 1) * ENTRY_SIZE), // after the entry
+  ]
+
+  // I should use truncate too.
+  if (write(dir_inode, updated_buffer) === -1) {
+    console.error("failed to write to parent dir");
+    return -1;
+  }
+
+  write_inode({
+    ...dir_inode,
+    size: size - ENTRY_SIZE,
+    mtime: now(),
+  });
+}
+
+
+export function rmdir(path) {
+  const name = path.split("/").at(-1);
+  if (!name) {
+    console.error("couldn't get name");
+    return -1;
+  }
+
+  const dir = path.slice(0, -name.length);
+  if (!dir) {
+    return -1;
+  }
+
+  const inode = stat(path);
+  if (inode === -1) {
+    return -1;
+  }
+
+  const dir_inode = stat(dir);
+  if (dir_inode === -1) {
+    return -1;
+  }
+
+  const { id, type, size, b1, b2, b3 } = inode;
+  if (type !== DIR) {
+    return -1;
+  }
+
+  if (size > ENTRY_SIZE * 2) {
+    return -1;
+  }
+
+  if (_rm_dir_entry(dir_inode, name) == -1) {
+    return -1;
+  }
+
+  [b1, b2, b3].map(b => b !== 0).map(b => free_block(b));
+  free_inode(id);
 }
 
 export function rm(path) {
@@ -409,48 +484,16 @@ export function rm(path) {
     return -1;
   }
 
-  const parent_id = find_inode(path.slice(0, -name.length));
-  if (parent_id === -1) {
-    return -1
-  }
+  const dir = path.slice(0, -name.length);
 
-  const parent = get_inode(parent_id);
-  if (parent === -1) {
+  const dir_inode = stat(dir);
+  if (dir_inode === -1) {
     return -1;
   }
 
-  const { size } = parent;
-  const buffer = new Uint8Array(size);
-  if (read(parent, buffer, size) === -1) {
-    console.log("failed to read buffer");
+  if (_rm_dir_entry(dir_inode, name) === -1) {
     return -1;
   }
-
-  const files = parse_dir_file(buffer);
-  const idx = files.findIndex(x => x.name === name);
-
-  if (idx === -1) {
-    console.error("Could not find file to remove from dir");
-    return -1;
-  }
-
-  const updated_buffer = [
-    ...buffer.slice(0, idx * ENTRY_SIZE), // up to the entry
-    ...buffer.slice((idx + 1) * ENTRY_SIZE), // after the entry
-  ]
-
-  if (write(parent, updated_buffer) === -1) {
-    console.error("failed to write to parent dir");
-    return -1;
-  }
-
-  const updated_parent = {
-    ...parent,
-    size: size - ENTRY_SIZE,
-    mtime: now(),
-  }
-
-  write_inode(updated_parent);
 
   [b1, b2, b3].filter(b => b !== 0).map(b => free_block(b));
   free_inode(id);

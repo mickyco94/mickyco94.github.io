@@ -1,4 +1,4 @@
-import { read_dir, read, create, append, mkdir, stat, EPOCH, now, rm } from './disk.js';
+import { read_dir, read, create, append, mkdir, stat, EPOCH, now, rm, rmdir } from './disk.js';
 import { string_to_ascii } from './ascii.js'
 const WELCOME = `Welcome to my stupid website`;
 
@@ -152,39 +152,44 @@ function _rm(args) {
   return "";
 }
 
+function _rmdir(args) {
+  if (!args)
+    return "arg required";
+  const path = args[0];
+  if (rmdir(path) === -1) {
+    return "Failed to remove dir";
+  }
+  return "";
+}
+
 function command(cmd) {
   const split = cmd.trim().split(" ");
   const bin = split[0];
   const args = split.slice(1);
   if (bin == "ls") {
     term.value += ls(args);
-  }
-  if (bin === "echo") {
+  } else if (bin === "echo") {
     term.value += echo(args);
-  }
-  if (bin === "clear") {
+  } else if (bin === "clear") {
     clear();
-  }
-  if (bin === "cat") {
+  } else if (bin === "cat") {
     term.value += cat(args);
-  }
-  if (bin === "touch") {
+  } else if (bin === "touch") {
     touch(args);
-  }
-  if (bin === "mkdir") {
+  } else if (bin === "mkdir") {
     make_dir(args);
-  }
-  if (bin === "stat") {
+  } else if (bin === "stat") {
     term.value += _stat(args)
-  }
-  if (bin === "date") {
+  } else if (bin === "date") {
     term.value += date();
-  }
-  if (bin === "cd") {
+  } else if (bin === "cd") {
     term.value += cd(args);
-  }
-  if (bin === "rm") {
+  } else if (bin === "rm") {
     term.value += _rm(args);
+  } else if (bin === "rmdir") {
+    term.value += _rmdir(args);
+  } else {
+    term.value += "Unknown command\n";
   }
 }
 
