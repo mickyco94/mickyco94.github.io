@@ -174,12 +174,16 @@ function read_dir_file(buffer) {
     const inode_id = buffer[i + MAX_ENTRY_NAME_SIZE + 1];
     files.push({ name, inode_id, occupied, inode: get_inode(inode_id), });
   }
-  return files;
+  return files.toSorted((a, b) => b.inode.type - a.inode.type || a.name.localeCompare(b.name));;
 }
 
-function find_inode(paths) {
+function find_inode(path) {
+  path = path.startsWith("/") ? path.slice(1) : path;
+  path = path.endsWith("/") ? path.slice(0, -1) : path;
   let current_inode = SUPERBLOCK.root_inode;
-  for (const path of paths) {
+  if (!path)
+    return current_inode;
+  for (const part of path.split("/")) {
     const inode = get_inode(current_inode);
     if (inode === -1) {
       console.error("couldn't find inode");
@@ -192,7 +196,7 @@ function find_inode(paths) {
 
     let found = false;
     for (const { name, inode_id } of files) {
-      if (name === path) {
+      if (name === part) {
         current_inode = inode_id;
         found = true;
         break;
@@ -206,7 +210,7 @@ function find_inode(paths) {
 }
 
 export function read_dir(path) {
-  const inode_id = find_inode(path.split("/"));
+  const inode_id = find_inode(path);
   if (inode_id === -1) {
     console.error("Could not find inode for ", path);
     return -1;
@@ -220,14 +224,25 @@ export function read_dir(path) {
     return -1;
   }
   const files = read_dir_file(buffer);
-  console.log(files);
   return files;
 }
 
+// Must be an absolute path
 export function mkdir(path) {
-  const parts = path.split("/");
-  const name = parts.at(-1);
-  const parent_id = find_inode(parts.slice(0, -1));
+  path = path.endsWith("/") ? path.slice(0, -1) : path;
+
+  const existing = find_inode(path);
+  if (existing !== -1) {
+    console.log("file exists");
+    return -1;
+  }
+  const name = path.split("/").at(-1);
+  if (!name) {
+    console.error("no name");
+    return -1
+  }
+  const parent = path.slice(0, -name.length);
+  const parent_id = find_inode(parent);
   const parent_inode = get_inode(parent_id);
   if (parent_inode.type !== DIR) {
     return -1;
@@ -244,16 +259,24 @@ export function mkdir(path) {
   write_inode(inode);
   const buffer = [
     ..._create_dir_entry({ name: ".", inode_id: inode_id }),
-    ..._create_dir_entry({ name: "..", inode_id: inode_id }),
+    ..._create_dir_entry({ name: "..", inode_id: parent_id }),
   ]
   write(inode, buffer);
 
 }
 
 export function create(path) {
-  const parts = path.split("/");
-  const name = parts.at(-1);
-  const parent_id = find_inode(parts.slice(0, -1));
+  const existing = find_inode(path);
+  if (existing !== -1) {
+    console.error("already exists");
+    return -1;
+  }
+  const name = path.split("/").at(-1);
+  if (!name) {
+    console.error("no name");
+    return -1;
+  }
+  const parent_id = find_inode(path.slice(0, -name.length));
   const parent_inode = get_inode(parent_id);
   if (parent_inode.type !== DIR) {
     return -1;
@@ -352,15 +375,31 @@ export function append(inode, buffer) {
 
 // Returns an inode
 export function stat(path) {
-  const parts = path.split("/");
-  const inode_id = find_inode(parts);
+  const inode_id = find_inode(path);
   if (inode_id === -1) {
     return -1;
   }
   return get_inode(inode_id);
 }
 
-create_root_dir();
-for (const dir of ["usr", "root", "home", "sbin", "sys", "var"]) {
-  mkdir(dir);
+export function rm(path) {
+  const inode = stat(path);
+  if (inode === -1) {
+    return -1;
+  }
+  // Removing involves updating the dir entry
+  // "Free-ing" the inode
 }
+
+function init() {
+  create_root_dir();
+  for (const dir of ["/bin", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"]) {
+    mkdir(dir);
+  }
+  // Placeholders for now
+  for (const file of ["./README.md"]) {
+    create(file);
+  }
+}
+
+init();

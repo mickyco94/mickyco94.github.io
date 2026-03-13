@@ -14,10 +14,12 @@ function clear() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-function point({ x, y, color = FG }) {
+function point({ x, y, color = FG, alpha = 0.3 }) {
+  ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
-  const size = 5;
+  const size = 10;
   ctx.fillRect((x - size / 2), (y - size / 2), size, size);
+  ctx.globalAlpha = 1;
 }
 
 function line(a, b, alpha = 1) {
@@ -102,6 +104,7 @@ function set_color(v, i) {
     const updated = {
       ...v,
       color: color,
+      alpha: 1.0,
     }
     return updated;
   }

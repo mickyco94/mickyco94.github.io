@@ -16,15 +16,6 @@ INPUT_START = term.selectionStart + 1;
 term.focus();
 term.addEventListener("blur", () => term.focus());
 
-// Higher-level principles
-// calls to functions are actually executions
-// of $PATH/bin. Can I implement actual functions in my file system?
-// I have no OS and therefore no runtime.
-// The principle of pipes, stdin, stdout, stderr 
-// I should adhere to even if I don't have an interpreter of some kind.
-// $PROMPT
-// env vars?
-
 function input() {
   return term.value.split("\n")?.at(-1)?.replace(PROMPT(), "");
 }
@@ -70,7 +61,7 @@ function ls(args) {
     const { name, inode: { id, type, size, ctime } } = f;
     s += id.toString().padStart(2, 0) + " ";
     s += type === 1 ? "DIR  " : "FILE "
-    s += to_real_time(ctime) + " ";
+    s += (ctime) + " ";
     s += size.toString().padStart(2, 0) + " ";
     s += name
     s += '\n';
