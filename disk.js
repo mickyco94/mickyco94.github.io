@@ -1,5 +1,5 @@
-const BYTES = 16 * 1024 * 1024; // 16mb
-const DISK = new Uint8Array(BYTES);
+export const BYTES = 16 * 1024 * 1024; // 16mb
+export const DISK = new Uint8Array(BYTES);
 
 function uint16_little_endian(n) {
   if (n > 65535 || n < 0) {
@@ -33,6 +33,10 @@ function next_block() {
 
 function next_inode() {
   return ++SUPERBLOCK.current_inode
+}
+
+export function inode_count() {
+  return SUPERBLOCK.current_inode + 1;
 }
 
 export const EPOCH = 786672000;
@@ -357,3 +361,6 @@ export function stat(path) {
 }
 
 create_root_dir();
+for (const dir of ["usr", "root", "home", "sbin", "sys", "var"]) {
+  mkdir(dir);
+}

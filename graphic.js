@@ -1,3 +1,5 @@
+import { inode_count } from "./disk.js";
+
 const FG = "#7d4e57";
 const BG = "#11151c";
 
@@ -12,8 +14,8 @@ function clear() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-function point({ x, y }) {
-  ctx.fillStyle = FG;
+function point({ x, y, color = FG }) {
+  ctx.fillStyle = color;
   const size = 5;
   ctx.fillRect((x - size / 2), (y - size / 2), size, size);
 }
@@ -81,6 +83,31 @@ function rotate_xy({ y, x, z }, angle) {
     z,
   }
 }
+
+const COLORS = [
+  "#F8F8F2",
+  "#6272A4",
+  "#8BE9FD",
+  "#50FA7B",
+  "#FFB86C",
+  "#FF79C6",
+  "#BD93F9",
+  "#FF5555",
+  "#F1FA8C"
+]
+
+function set_color(v, i) {
+  if (i < inode_count()) {
+    const color = COLORS.at(i % COLORS.length);
+    const updated = {
+      ...v,
+      color: color,
+    }
+    return updated;
+  }
+  return { ...v, color: "#6272A4" };
+}
+
 const vs = [
   { x: 1, y: 1, z: 1 },
   { x: -1, y: 1, z: 1 },
@@ -109,7 +136,7 @@ let time = 0;
 
 const rand = () => Math.random() * 2 - 1;
 
-const random_points = [...Array(500)].map(() => ({
+const random_points = [...Array(256)].map(() => ({
   x: rand(),
   y: rand(),
   z: rand(),
@@ -153,17 +180,15 @@ function draw_cube() {
     .map(v => rotate_xy(v, angle))
     .map(v => scale(v, 0.3))
     .map(v => translate(v, { dz: 1 }))
-    .map(v => point(screen(project(v))));
-
+    .map(v => screen(project(v)))
+    .map((v, i) => set_color(v, i))
+    .map(v => point(v));
 }
 
-let state = "cube";
 
 function frame() {
   clear();
-  if (state === "cube") {
-    draw_cube();
-  }
+  draw_cube();
   setTimeout(frame, 1000 / FPS);
 }
 
