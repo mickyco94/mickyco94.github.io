@@ -1,4 +1,4 @@
-import { read_dir, read, create, append, mkdir, stat, EPOCH, now } from './disk.js';
+import { read_dir, read, create, append, mkdir, stat, EPOCH, now, rm } from './disk.js';
 import { string_to_ascii } from './ascii.js'
 const WELCOME = `Welcome to my stupid website`;
 
@@ -142,6 +142,16 @@ function cd(args) {
   return "\n";
 }
 
+function _rm(args) {
+  if (!args)
+    return "arg required";
+  const path = args[0];
+  if (rm(path) === -1) {
+    console.error("failed to rm", path);
+  }
+  return "";
+}
+
 function command(cmd) {
   const split = cmd.trim().split(" ");
   const bin = split[0];
@@ -172,6 +182,9 @@ function command(cmd) {
   }
   if (bin === "cd") {
     term.value += cd(args);
+  }
+  if (bin === "rm") {
+    term.value += _rm(args);
   }
 }
 

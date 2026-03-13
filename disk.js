@@ -22,21 +22,34 @@ const SUPERBLOCK = {
   inodes: 256, // This spacing is odd
   block_size: 256,
   root_inode: 1,
-  current_inode: 1, // 0 is the empty value
-  current_block: 1, // 0 represents empty
   inode_table_size: 256 * 16,
+  free_blocks: Array.from({ length: 256 }).map((_, i) => i + 1).reverse(),
+  free_inodes: Array.from({ length: 256 }).map((_, i) => i + 1).reverse(),
 };
 
 function next_block() {
-  return ++SUPERBLOCK.current_block;
+  if (SUPERBLOCK.free_blocks.length === 0)
+    return -1;
+  return SUPERBLOCK.free_blocks.pop();
+}
+
+function free_block(id) {
+  SUPERBLOCK.free_blocks.push(id);
 }
 
 function next_inode() {
-  return ++SUPERBLOCK.current_inode
+  if (SUPERBLOCK.free_inodes.length === 0)
+    return -1;
+  return SUPERBLOCK.free_inodes.pop();
+}
+
+function free_inode(id) {
+  SUPERBLOCK.free_inodes.push(id);
+  // Do I need to zero out the INODE table?
 }
 
 export function inode_count() {
-  return SUPERBLOCK.current_inode + 1;
+  return 256 - SUPERBLOCK.free_inodes.length;
 }
 
 export const EPOCH = 786672000;
@@ -159,7 +172,7 @@ function create_root_dir() {
   write(root_inode, new Uint8Array(buffer));
 }
 
-function read_dir_file(buffer) {
+function parse_dir_file(buffer) {
   const files = [];
   for (let i = 0; i < buffer.length; i += ENTRY_SIZE) {
     let name = ""
@@ -174,7 +187,7 @@ function read_dir_file(buffer) {
     const inode_id = buffer[i + MAX_ENTRY_NAME_SIZE + 1];
     files.push({ name, inode_id, occupied, inode: get_inode(inode_id), });
   }
-  return files.toSorted((a, b) => b.inode.type - a.inode.type || a.name.localeCompare(b.name));;
+  return files
 }
 
 function find_inode(path) {
@@ -192,7 +205,7 @@ function find_inode(path) {
     const { size } = inode;
     const buffer = new Uint8Array(size);
     read(inode, buffer, size);
-    const files = read_dir_file(buffer);
+    const files = parse_dir_file(buffer);
 
     let found = false;
     for (const { name, inode_id } of files) {
@@ -223,8 +236,8 @@ export function read_dir(path) {
     console.error("Failed to read dir");
     return -1;
   }
-  const files = read_dir_file(buffer);
-  return files;
+  const files = parse_dir_file(buffer);
+  return files.toSorted((a, b) => b.inode.type - a.inode.type || a.name.localeCompare(b.name));
 }
 
 // Must be an absolute path
@@ -373,7 +386,6 @@ export function append(inode, buffer) {
   return n;
 }
 
-// Returns an inode
 export function stat(path) {
   const inode_id = find_inode(path);
   if (inode_id === -1) {
@@ -384,11 +396,64 @@ export function stat(path) {
 
 export function rm(path) {
   const inode = stat(path);
-  if (inode === -1) {
+  if (inode === -1)
+    return -1;
+
+  const { id, type, b1, b2, b3 } = inode;
+  if (type === DIR) {
     return -1;
   }
-  // Removing involves updating the dir entry
-  // "Free-ing" the inode
+
+  const name = path.split("/").at(-1);
+  if (!name) {
+    return -1;
+  }
+
+  const parent_id = find_inode(path.slice(0, -name.length));
+  if (parent_id === -1) {
+    return -1
+  }
+
+  const parent = get_inode(parent_id);
+  if (parent === -1) {
+    return -1;
+  }
+
+  const { size } = parent;
+  const buffer = new Uint8Array(size);
+  if (read(parent, buffer, size) === -1) {
+    console.log("failed to read buffer");
+    return -1;
+  }
+
+  const files = parse_dir_file(buffer);
+  const idx = files.findIndex(x => x.name === name);
+
+  if (idx === -1) {
+    console.error("Could not find file to remove from dir");
+    return -1;
+  }
+
+  const updated_buffer = [
+    ...buffer.slice(0, idx * ENTRY_SIZE), // up to the entry
+    ...buffer.slice((idx + 1) * ENTRY_SIZE), // after the entry
+  ]
+
+  if (write(parent, updated_buffer) === -1) {
+    console.error("failed to write to parent dir");
+    return -1;
+  }
+
+  const updated_parent = {
+    ...parent,
+    size: size - ENTRY_SIZE,
+    mtime: now(),
+  }
+
+  write_inode(updated_parent);
+
+  [b1, b2, b3].filter(b => b !== 0).map(b => free_block(b));
+  free_inode(id);
 }
 
 function init() {
