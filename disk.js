@@ -1,4 +1,4 @@
-export const BYTES = 16 * 1024 * 1024; // 16mb
+export const BYTES = 16 * 1024 * 1024;
 export const DISK = new Uint8Array(BYTES);
 
 function uint16_little_endian(n) {
@@ -19,7 +19,7 @@ function little_endian_uint16(bytes) {
 const SUPERBLOCK = {
   fs: "toy",
   blocks: 2 << 15,
-  inodes: 256, // This spacing is odd
+  inodes: 256,
   block_size: 256,
   root_inode: 1,
   inode_table_size: 256 * 16,
@@ -30,10 +30,13 @@ const SUPERBLOCK = {
 function next_block() {
   if (SUPERBLOCK.free_blocks.length === 0)
     return -1;
-  return SUPERBLOCK.free_blocks.pop();
+  const block = SUPERBLOCK.free_blocks.pop();
+  console.log("allocating block", block);
+  return block;
 }
 
 function free_block(id) {
+  console.log("free block", id);
   SUPERBLOCK.free_blocks.push(id);
 }
 
@@ -45,7 +48,6 @@ function next_inode() {
 
 function free_inode(id) {
   SUPERBLOCK.free_inodes.push(id);
-  // Do I need to zero out the INODE table?
 }
 
 export function inode_count() {
@@ -82,7 +84,7 @@ const INODE_SIZE = 16;
 const FILE = 0;
 const DIR = 1;
 
-function write_inode({ id, type, link, size, b1, b2, b3, ctime, atime, mtime }) {
+function write_inode({ id, type, link, size, blocks, ctime, atime, mtime }) {
   const [size_b1, size_b2] = uint16_little_endian(size);
   const [ctime_b1, ctime_b2] = uint16_little_endian(ctime);
   const [atime_b1, atime_b2] = uint16_little_endian(atime);
@@ -93,9 +95,9 @@ function write_inode({ id, type, link, size, b1, b2, b3, ctime, atime, mtime }) 
   DISK[start + 2] = link;
   DISK[start + 3] = size_b1;
   DISK[start + 4] = size_b2;
-  DISK[start + 5] = b1;
-  DISK[start + 6] = b2;
-  DISK[start + 7] = b3;
+  DISK[start + 5] = blocks.at(0) ?? 0;
+  DISK[start + 6] = blocks.at(1) ?? 0;
+  DISK[start + 7] = blocks.at(2) ?? 0;
   DISK[start + 8] = ctime_b1;
   DISK[start + 9] = ctime_b2;
   DISK[start + 10] = atime_b1;
@@ -113,9 +115,7 @@ function get_inode(id) {
   const link = DISK[start + 2]
   const size_b1 = DISK[start + 3]
   const size_b2 = DISK[start + 4]
-  const b1 = DISK[start + 5];
-  const b2 = DISK[start + 6];
-  const b3 = DISK[start + 7];
+  const blocks = [DISK[start + 5], DISK[start + 6], DISK[start + 7]];
   const ctime_b1 = DISK[start + 8];
   const ctime_b2 = DISK[start + 9];
   const atime_b1 = DISK[start + 10];
@@ -132,9 +132,8 @@ function get_inode(id) {
   DISK[start + 10] = new_atime_b1;
   DISK[start + 11] = new_atime_b2;
 
-
   return {
-    id: uid, type, link, size, b1, b2, b3, ctime, atime, mtime,
+    id: uid, type, link, size, blocks, ctime, atime, mtime,
   }
 }
 
@@ -155,39 +154,13 @@ function _create_dir_entry({ name, inode_id }) {
   return buffer;
 }
 
-function create_root_dir() {
-  const root_inode = {
-    id: 1,
-    type: DIR,
-    size: 2 * ENTRY_SIZE,
-    b1: 1,
-    ctime: now(),
-    atime: now(),
-    mtime: now(),
-  }
-  write_inode(root_inode);
-  const dot = _create_dir_entry({ name: ".", inode_id: root_inode.id })
-  const dotdot = _create_dir_entry({ name: "..", inode_id: root_inode.id })
-  const buffer = [...dot, ...dotdot];
-  write(root_inode, new Uint8Array(buffer));
+export function fstat(inode_id) {
+  return get_inode(inode_id);
 }
 
-function parse_dir_file(buffer) {
-  const files = [];
-  for (let i = 0; i < buffer.length; i += ENTRY_SIZE) {
-    let name = ""
-    for (let j = 0; j < MAX_ENTRY_NAME_SIZE; j++) {
-      const b = buffer[i + j]
-      if (!b) {
-        break;
-      }
-      name += String.fromCharCode(b);
-    }
-    const occupied = buffer[i + MAX_ENTRY_NAME_SIZE];
-    const inode_id = buffer[i + MAX_ENTRY_NAME_SIZE + 1];
-    files.push({ name, inode_id, occupied, inode: get_inode(inode_id), });
-  }
-  return files
+export function stat(path) {
+  const fd = find_inode(path);
+  return fd === -1 ? -1 : fstat(fd);
 }
 
 function find_inode(path) {
@@ -222,62 +195,6 @@ function find_inode(path) {
   return current_inode;
 }
 
-export function read_dir(path) {
-  const inode_id = find_inode(path);
-  if (inode_id === -1) {
-    console.error("Could not find inode for ", path);
-    return -1;
-  }
-  const inode = get_inode(inode_id);
-  const { size } = inode;
-  const buffer = new Uint8Array(size);
-  const read_bytes = read(inode, buffer, size);
-  if (read_bytes == -1) {
-    console.error("Failed to read dir");
-    return -1;
-  }
-  const files = parse_dir_file(buffer);
-  return files.toSorted((a, b) => b.inode.type - a.inode.type || a.name.localeCompare(b.name));
-}
-
-// Must be an absolute path
-export function mkdir(path) {
-  path = path.endsWith("/") ? path.slice(0, -1) : path;
-
-  const existing = find_inode(path);
-  if (existing !== -1) {
-    console.log("file exists");
-    return -1;
-  }
-  const name = path.split("/").at(-1);
-  if (!name) {
-    console.error("no name");
-    return -1
-  }
-  const parent = path.slice(0, -name.length);
-  const parent_id = find_inode(parent);
-  const parent_inode = get_inode(parent_id);
-  if (parent_inode.type !== DIR) {
-    return -1;
-  }
-  const inode_id = next_inode();
-  const block = next_block();
-  const inode = { id: inode_id, type: DIR, size: 2 * ENTRY_SIZE, b1: block, ctime: now(), atime: now(), mtime: now() };
-
-  // Update parent reference
-  const parent_buffer = _create_dir_entry({ name: name, inode_id: inode_id });
-  if (append(parent_inode, parent_buffer) === -1) {
-    return -1;
-  };
-  write_inode(inode);
-  const buffer = [
-    ..._create_dir_entry({ name: ".", inode_id: inode_id }),
-    ..._create_dir_entry({ name: "..", inode_id: parent_id }),
-  ]
-  write(inode, buffer);
-
-}
-
 export function create(path) {
   const existing = find_inode(path);
   if (existing !== -1) {
@@ -300,9 +217,7 @@ export function create(path) {
     type: FILE,
     link: 0,
     size: 0,
-    b1: block,
-    b2: 0,
-    b3: 0,
+    blocks: [block, 0, 0],
     ctime: now(),
     atime: now(),
     mtime: now(),
@@ -316,12 +231,38 @@ export function create(path) {
   return inode;
 }
 
-export function read({ b1, b2, b3 }, buffer, size) {
+export function ftruncate(inode, size) {
+  const { blocks } = inode;
+  for (let i = 0; i < 3; i++) {
+    const block = blocks[i];
+    const block_capacity = SUPERBLOCK.block_size * i;
+    if (block_capacity > size && block !== 0) {
+      free_block(block);
+    }
+    if (block_capacity < size && block == 0) {
+      blocks[i] = next_block();
+    }
+  }
+
+  const updated = {
+    ...inode,
+    size: size,
+    mtime: now(),
+  }
+
+  write_inode(updated);
+}
+
+export function truncate(path, size) {
+  const inode = stat(path);
+  inode === -1 ? -1 : ftruncate(inode, size);
+}
+
+export function read({ blocks }, buffer, size) {
   const n = buffer.length;
   if (n > size) {
     return -1;
   }
-  const blocks = [b1, b2, b3];
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
     const block = blocks[block_idx];
@@ -332,26 +273,26 @@ export function read({ b1, b2, b3 }, buffer, size) {
 }
 
 export function write(inode, buffer) {
-  const { b1, b2, b3 } = inode
+  const { blocks } = inode
   const n = buffer.length;
-  const blocks = [b1, b2, b3];
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
     const block = blocks[block_idx];
     const disk_index = SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
+
   const updated = {
     ...inode,
     mtime: now(),
   }
+
   write_inode(updated);
   return n;
 }
 
 export function append(inode, buffer) {
-  const { b1, b2, b3, size } = inode;
-  const blocks = [b1, b2, b3];
+  const { blocks, size } = inode;
   const n = buffer.length;
   if (n >= SUPERBLOCK.block_size * 3) {
     console.error("blocks full");
@@ -366,7 +307,6 @@ export function append(inode, buffer) {
     let block = blocks[block_idx];
     // todo: move this out of the loop.
     if (block === 0) {
-      console.log("allocating block!");
       block = next_block();
       blocks[block_idx] = block;
     }
@@ -376,9 +316,7 @@ export function append(inode, buffer) {
   }
   const updated_inode = {
     ...inode,
-    b1: blocks[0],
-    b2: blocks[1],
-    b3: blocks[2],
+    blocks,
     size: size + n,
     mtime: now(),
   }
@@ -386,14 +324,61 @@ export function append(inode, buffer) {
   return n;
 }
 
-export function fstat(inode_id) {
-  return get_inode(inode_id);
+export function read_dir(path) {
+  const inode = stat(path);
+  if (inode === -1) {
+    return -1;
+  }
+
+  const { size } = inode;
+  const buffer = new Uint8Array(size);
+  if (read(inode, buffer, size) === -1) {
+    return -1;
+  };
+
+  const files = parse_dir_file(buffer);
+  return files.toSorted((a, b) => b.inode.type - a.inode.type || a.name.localeCompare(b.name));
 }
 
-export function stat(path) {
-  const fd = find_inode(path);
-  return fd === -1 ? -1 : fstat(fd);
+export function mkdir(path) {
+  path = path.endsWith("/") ? path.slice(0, -1) : path;
+
+  const existing = find_inode(path);
+  if (existing !== -1) {
+    console.log("file exists");
+    return -1;
+  }
+  const name = path.split("/").at(-1);
+  if (!name) {
+    console.error("no name");
+    return -1
+  }
+  const parent = path.slice(0, -name.length);
+  const parent_id = find_inode(parent);
+  const parent_inode = get_inode(parent_id);
+  if (parent_inode.type !== DIR) {
+    return -1;
+  }
+
+  const inode_id = next_inode();
+  const block = next_block();
+  const inode = { id: inode_id, type: DIR, size: 2 * ENTRY_SIZE, blocks: [block], ctime: now(), atime: now(), mtime: now() };
+
+  // Update parent reference
+  const parent_buffer = _create_dir_entry({ name: name, inode_id: inode_id });
+  if (append(parent_inode, parent_buffer) === -1) {
+    return -1;
+  };
+
+  write_inode(inode);
+  const buffer = [
+    ..._create_dir_entry({ name: ".", inode_id: inode_id }),
+    ..._create_dir_entry({ name: "..", inode_id: parent_id }),
+  ]
+  write(inode, buffer);
+
 }
+
 
 function _rm_dir_entry(dir_inode, name) {
   const { size } = dir_inode;
@@ -416,7 +401,6 @@ function _rm_dir_entry(dir_inode, name) {
     ...buffer.slice((idx + 1) * ENTRY_SIZE), // after the entry
   ]
 
-  // I should use truncate too.
   if (write(dir_inode, updated_buffer) === -1) {
     console.error("failed to write to parent dir");
     return -1;
@@ -452,7 +436,7 @@ export function rmdir(path) {
     return -1;
   }
 
-  const { id, type, size, b1, b2, b3 } = inode;
+  const { id, type, size, blocks } = inode;
   if (type !== DIR) {
     return -1;
   }
@@ -465,7 +449,7 @@ export function rmdir(path) {
     return -1;
   }
 
-  [b1, b2, b3].map(b => b !== 0).map(b => free_block(b));
+  blocks.map(b => b !== 0).map(b => free_block(b));
   free_inode(id);
 }
 
@@ -474,7 +458,7 @@ export function rm(path) {
   if (inode === -1)
     return -1;
 
-  const { id, type, b1, b2, b3 } = inode;
+  const { id, type, blocks } = inode;
   if (type === DIR) {
     return -1;
   }
@@ -495,19 +479,49 @@ export function rm(path) {
     return -1;
   }
 
-  [b1, b2, b3].filter(b => b !== 0).map(b => free_block(b));
+  blocks.filter(b => b !== 0).map(b => free_block(b));
   free_inode(id);
+}
+
+function parse_dir_file(buffer) {
+  const files = [];
+  for (let i = 0; i < buffer.length; i += ENTRY_SIZE) {
+    let name = ""
+    for (let j = 0; j < MAX_ENTRY_NAME_SIZE; j++) {
+      const b = buffer[i + j]
+      if (!b) {
+        break;
+      }
+      name += String.fromCharCode(b);
+    }
+    const occupied = buffer[i + MAX_ENTRY_NAME_SIZE];
+    const inode_id = buffer[i + MAX_ENTRY_NAME_SIZE + 1];
+    files.push({ name, inode_id, occupied, inode: get_inode(inode_id), });
+  }
+  return files
+}
+
+function create_root_dir() {
+  const root_inode = {
+    id: 1,
+    type: DIR,
+    size: 2 * ENTRY_SIZE,
+    blocks: [1, 0, 0],
+    ctime: now(),
+    atime: now(),
+    mtime: now(),
+  }
+  write_inode(root_inode);
+  const dot = _create_dir_entry({ name: ".", inode_id: root_inode.id })
+  const dotdot = _create_dir_entry({ name: "..", inode_id: root_inode.id })
+  const buffer = [...dot, ...dotdot];
+  write(root_inode, new Uint8Array(buffer));
 }
 
 function init() {
   create_root_dir();
-  for (const dir of ["/bin", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"]) {
-    mkdir(dir);
-  }
-  // Placeholders for now
-  for (const file of ["./README.md"]) {
-    create(file);
-  }
+  ["/bin", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"].map(p => mkdir(p));
+  ["./README.md", "test"].map(p => create(p));
 }
 
 init();
