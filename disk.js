@@ -31,12 +31,10 @@ function next_block() {
   if (SUPERBLOCK.free_blocks.length === 0)
     return -1;
   const block = SUPERBLOCK.free_blocks.pop();
-  console.log("allocating block", block);
   return block;
 }
 
 function free_block(id) {
-  console.log("free block", id);
   SUPERBLOCK.free_blocks.push(id);
 }
 
@@ -237,6 +235,7 @@ export function ftruncate(inode, size) {
     const block = blocks[i];
     const block_capacity = SUPERBLOCK.block_size * i;
     if (block_capacity > size && block !== 0) {
+      blocks[i] = 0;
       free_block(block);
     }
     if (block_capacity < size && block == 0) {
@@ -246,6 +245,7 @@ export function ftruncate(inode, size) {
 
   const updated = {
     ...inode,
+    blocks: blocks,
     size: size,
     mtime: now(),
   }
@@ -291,36 +291,24 @@ export function write(inode, buffer) {
   return n;
 }
 
-export function append(inode, buffer) {
-  const { blocks, size } = inode;
+export function append(inode, buffer, offset = 0) {
+  const { id, size } = inode;
+  offset = offset === 0 ? size : offset;
   const n = buffer.length;
-  if (n >= SUPERBLOCK.block_size * 3) {
-    console.error("blocks full");
+  if (ftruncate(inode, size + n) === -1) {
     return -1;
   }
+  const { blocks } = get_inode(id);
   for (let i = 0; i < n; i++) {
-    const block_idx = Math.floor((size + i) / SUPERBLOCK.block_size);
-    if (block_idx >= blocks.length) {
-      console.error("not enough blocks", n, blocks, block_idx);
+    const block_idx = Math.floor((offset + i) / SUPERBLOCK.block_size);
+    let block = blocks.at(block_idx);
+    if (!block) {
       return -1;
     }
-    let block = blocks[block_idx];
-    // todo: move this out of the loop.
-    if (block === 0) {
-      block = next_block();
-      blocks[block_idx] = block;
-    }
 
-    const disk_index = SUPERBLOCK.inode_table_size + size + (block * SUPERBLOCK.block_size) + i;
+    const disk_index = SUPERBLOCK.inode_table_size + offset + (block * SUPERBLOCK.block_size) + i;
     DISK[disk_index] = buffer[i];
   }
-  const updated_inode = {
-    ...inode,
-    blocks,
-    size: size + n,
-    mtime: now(),
-  }
-  write_inode(updated_inode);
   return n;
 }
 

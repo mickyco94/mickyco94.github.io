@@ -1,7 +1,9 @@
-import { read_dir, read, create, append, mkdir, stat, EPOCH, now, rm, rmdir } from './disk.js';
-import { string_to_ascii } from './ascii.js'
+import { stat as _stat } from './disk.js';
+import { cat, date, echo, ls, mkdir, rm, rmdir, touch, stat } from './bin/index.js';
+
 const WELCOME = `Welcome to my stupid website`;
 
+// Maybe lets just create an env.js
 let INPUT_START = 0;
 let PWD = "/";
 
@@ -26,7 +28,9 @@ term.addEventListener("keydown", (event) => {
     event.preventDefault();
     const cmd = input();
     term.value += "\n";
-    command(cmd);
+    const stdout = command(cmd);
+    if (stdout)
+      term.value += stdout;
     term.value += PROMPT();
     INPUT_START = term.selectionStart + 1;
   }
@@ -37,104 +41,15 @@ term.addEventListener("keydown", (event) => {
   }
 });
 
-function to_real_time(base) {
-  return new Date((base + EPOCH) * 1000)
-    .toISOString()
-    .replace('T', ' ')
-    .replace(/\.\d+Z$/, '');
-}
-
-function date() {
-  return to_real_time(now()) + "\n";
-}
-
-function ls(args) {
-  const path = args.length > 0 ? args[0] : ".";
-  const files = read_dir(path);
-  if (files === -1) {
-    return "error";
-  }
-  let s = "";
-  for (const f of files) {
-    if (!f.name)
-      continue
-    const { name, inode: { id, type, size, ctime } } = f;
-    s += id.toString().padStart(2, 0) + " ";
-    s += type === 1 ? "DIR  " : "FILE "
-    s += (ctime) + " ";
-    s += size.toString().padStart(2, 0) + " ";
-    s += name
-    s += '\n';
-  }
-  return s;
-}
-
-function echo(arg) {
-  if (arg.length > 1) {
-    alert("invalid");
-  }
-  return arg + "\n";
-}
-
-function cat(args) {
-  const path = args[0];
-  const fd = stat(path);
-  console.log(fd);
-  if (fd === -1) {
-    console.error("couldn't find file", path);
-    return "";
-  }
-  if (fd.type === 1) {
-    return "";
-  }
-  const buffer = new Array(fd.size);
-  read(fd, buffer, fd.size);
-  console.log(buffer);
-  return buffer.map(x => String.fromCharCode(x)).join("") + "\n";
-}
-
-function make_dir(args) {
-  const path = args[0]
-  mkdir(path);
-  return "";
-}
-
 function clear() {
   term.value = "";
-}
-
-function touch(args) {
-  const path = args[0];
-  const content = args[1];
-  const fd = create(path, content.length);
-  if (fd === -1) {
-    console.error("create failed");
-    return;
-  }
-  const buffer = string_to_ascii(content);
-  console.log("Writing", buffer, content);
-  append(fd, buffer);
-}
-
-function _stat(args) {
-  if (!args)
-    return "";
-  const path = args[0];
-  const fd = stat(path);
-  if (fd === -1) {
-    return "not found\n";
-  }
-  const { id, type, size, b1, b2, b3, ctime, atime, mtime } = fd;
-  const blockCount = [b1, b2, b3].filter(x => x > 0).length;
-  const typeD = type === 1 ? "DIR" : "FILE";
-  return `${id} ${typeD} ${size} ${blockCount} ${ctime} ${atime} ${mtime}\n`
 }
 
 function cd(args) {
   if (!args)
     return "";
   const path = args[0];
-  const fd = stat(path);
+  const fd = _stat(path);
   if (fd === -1) {
     return "not found";
   }
@@ -142,54 +57,36 @@ function cd(args) {
   return "\n";
 }
 
-function _rm(args) {
-  if (!args)
-    return "arg required";
-  const path = args[0];
-  if (rm(path) === -1) {
-    console.error("failed to rm", path);
-  }
-  return "";
-}
-
-function _rmdir(args) {
-  if (!args)
-    return "arg required";
-  const path = args[0];
-  if (rmdir(path) === -1) {
-    return "Failed to remove dir";
-  }
-  return "";
-}
-
 function command(cmd) {
   const split = cmd.trim().split(" ");
   const bin = split[0];
   const args = split.slice(1);
-  if (bin == "ls") {
-    term.value += ls(args);
-  } else if (bin === "echo") {
-    term.value += echo(args);
-  } else if (bin === "clear") {
-    clear();
-  } else if (bin === "cat") {
-    term.value += cat(args);
-  } else if (bin === "touch") {
-    touch(args);
-  } else if (bin === "mkdir") {
-    make_dir(args);
-  } else if (bin === "stat") {
-    term.value += _stat(args)
-  } else if (bin === "date") {
-    term.value += date();
-  } else if (bin === "cd") {
-    term.value += cd(args);
-  } else if (bin === "rm") {
-    term.value += _rm(args);
-  } else if (bin === "rmdir") {
-    term.value += _rmdir(args);
-  } else {
-    term.value += "Unknown command\n";
+
+  switch (bin) {
+    case "ls":
+      return ls(args);
+    case "echo":
+      return echo(args);
+    case "clear":
+      return clear();
+    case "cat":
+      return cat(args);
+    case "touch":
+      return touch(args);
+    case "mkdir":
+      return mkdir(args);
+    case "stat":
+      return stat(args);
+    case "date":
+      return date();
+    case "cd":
+      return cd(args);
+    case "rm":
+      return rm(args);
+    case "rmdir":
+      return rmdir(args);
+    default:
+      return "Unknown command\n";
   }
 }
 

@@ -32,6 +32,10 @@ a:hover {
   text-decoration: underline;
 }
 
+.p5 {
+  padding: 5px;
+}
+
 .container {
   flex: 1;
   padding-left: 15%;
@@ -40,10 +44,6 @@ a:hover {
   flex-wrap: wrap;
   width: 100%;
   box-sizing: border-box;
-}
-
-.p5 {
-  padding: 5px;
 }
 
 .col {
