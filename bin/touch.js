@@ -1,3 +1,6 @@
+import { string_to_ascii } from "../ascii.js";
+import { append, create } from "../disk.js";
+
 export function touch(args) {
   const path = args[0];
   const content = args[1];

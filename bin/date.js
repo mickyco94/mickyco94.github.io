@@ -1,4 +1,4 @@
-import { now } from "../disk.js";
+import { now, EPOCH } from "../disk.js";
 
 function to_real_time(base) {
   return new Date((base + EPOCH) * 1000)
@@ -10,3 +10,4 @@ function to_real_time(base) {
 export function date() {
   return to_real_time(now()) + "\n";
 }
+

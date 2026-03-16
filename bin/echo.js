@@ -1,7 +1,8 @@
-export function echo(arg) {
-  if (arg.length > 1) {
-    return -1;
+export function echo(args) {
+  let s = "";
+  for (const a of args) {
+    s += a + " ";
   }
-  return arg + "\n";
+  return s + "\n";
 }
 

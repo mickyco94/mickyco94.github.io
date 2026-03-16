@@ -1,3 +1,5 @@
+import { string_to_ascii } from "./ascii.js";
+
 export const BYTES = 16 * 1024 * 1024;
 export const DISK = new Uint8Array(BYTES);
 
@@ -506,10 +508,9 @@ function create_root_dir() {
   write(root_inode, new Uint8Array(buffer));
 }
 
-function init() {
+async function init() {
   create_root_dir();
-  ["/bin", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"].map(p => mkdir(p));
-  ["./README.md", "test"].map(p => create(p));
+  ["/bin", "/code", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"].map(p => mkdir(p));
 }
 
 init();
