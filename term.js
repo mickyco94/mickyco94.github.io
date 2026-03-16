@@ -49,14 +49,30 @@ function clear() {
 function cd(args) {
   if (!args)
     return "";
-  const pwd = env.ENV.get("PWD");
-  const path = pwd + args[0];
-  console.log(path);
-  const fd = _stat(path);
-  if (fd === -1) {
-    return "not found";
+  let pwd = env.ENV.get("PWD");
+  const path = args[0];
+  if (path.startsWith("/")) {
+    pwd = "/";
   }
-  env.ENV.set("PWD", path);
+  const parts = path.split("/").filter(p => p !== "");
+  for (const part of parts) {
+    if (part == '.')
+      continue;
+    if (part === "..") {
+      const idx = pwd.lastIndexOf("/");
+      pwd = idx === 0 ? "/" : pwd.slice(0, idx);
+    } else {
+      pwd = pwd === "/" ? `/${part}` : `${pwd}/${part}`;
+    }
+  }
+  const inode = _stat(pwd);
+  if (inode === -1) {
+    return "directory does not exist\n";
+  }
+  if (inode.type === 0) {
+    return "not a directory\n";
+  }
+  env.ENV.set("PWD", pwd);
   return "\n";
 }
 

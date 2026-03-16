@@ -1,7 +1,8 @@
 import { inode_count } from "./disk.js";
 
-const FG = "#7d4e57";
-const BG = "#11151c";
+//const FG = "#7d4e57";
+const FG = "#f1fa8c";
+const BG = "#161616";
 
 const canvas = document.getElementById("game");
 canvas.width = 950;

@@ -1,14 +1,10 @@
 import { read_dir } from "../disk.js";
-import * as env from '../env.js';
+import { resolve_path } from "../utils.js";
 
 export function ls(args) {
-  const base = env.ENV.get("PWD") ?? "";
   let path = args.length > 0 ? args[0] : ".";
-  if (!path.startsWith("/")) {
-    path = base + "/" + path;
-  }
-  console.log(path);
-  const files = read_dir(path);
+  const full_path = resolve_path(path);
+  const files = read_dir(full_path);
   if (files === -1) {
     return "error\n";
   }
@@ -24,5 +20,4 @@ export function ls(args) {
   }
   return s;
 }
-
 

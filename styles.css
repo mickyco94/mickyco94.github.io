@@ -4,7 +4,7 @@
   --color-danger: #ef4444;
   --color-text: #edf6f9;
   --color-sub-text: #2b2222;
-  --color-background: #11151c;
+  --color-background: #161616;
 }
 
 body {
@@ -45,11 +45,12 @@ a:hover {
   font-family: "JetBrains Mono", monospace;
   font-optical-sizing: auto;
 
-  border: none;
+  border-color: #42be65;
   border-radius: 8px;
+  border-width: 0.1px;
 
-  background: #111;
-  color: green;
+  background: #161616;
+  color: #42be65;
 
   resize: none;
   outline: none;

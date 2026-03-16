@@ -1,9 +1,11 @@
 import { stat, read } from '../disk.js';
+import { ENV } from '../env.js';
 
 export function cat(args) {
   let res = "";
   for (const path of args) {
-    const fd = stat(path);
+    let full_path = path.startsWith("/") ? path : ENV.get("PWD") + path;
+    const fd = stat(full_path);
     if (fd === -1) {
       res += `${path}: No such file or directory\n`;
       continue;
