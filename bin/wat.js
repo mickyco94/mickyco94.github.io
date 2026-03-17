@@ -1,3 +1,5 @@
+import { cat } from "./cat.js";
+
 export function wat() {
-  return `???\n`;
+  return cat(["/README"]);
 }

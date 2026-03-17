@@ -1,5 +1,3 @@
-import { string_to_ascii } from "./ascii.js";
-
 export const BYTES = 16 * 1024 * 1024;
 export const DISK = new Uint8Array(BYTES);
 
@@ -33,11 +31,16 @@ function next_block() {
   if (SUPERBLOCK.free_blocks.length === 0)
     return -1;
   const block = SUPERBLOCK.free_blocks.pop();
+  console.log("returning block", block);
   return block;
 }
 
 function free_block(id) {
   SUPERBLOCK.free_blocks.push(id);
+}
+
+function block_start(block) {
+  return SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size);
 }
 
 function next_inode() {
@@ -224,7 +227,7 @@ export function create(path) {
   };
   write_inode(inode);
   const buffer = _create_dir_entry({ name: name, inode_id: inode.id });
-  if (append(parent_inode, buffer) === -1) {
+  if (fappend(parent_inode, buffer) === -1) {
     console.error("failed to write to parent on creation");
     return -1;
   }
@@ -265,10 +268,12 @@ export function read({ blocks }, buffer, size) {
   if (n > size) {
     return -1;
   }
+
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
     const block = blocks[block_idx];
-    buffer[i] = DISK[SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i];
+    const disk_start = block_start(block);
+    buffer[i] = DISK[disk_start + (i % SUPERBLOCK.block_size)];
   }
 
   return size;
@@ -280,8 +285,9 @@ export function write(inode, buffer) {
   for (let i = 0; i < n; i++) {
     const block_idx = Math.floor(i / SUPERBLOCK.block_size);
     const block = blocks[block_idx];
-    const disk_index = SUPERBLOCK.inode_table_size + (block * SUPERBLOCK.block_size) + i;
-    DISK[disk_index] = buffer[i];
+    const disk_start = block_start(block);
+    const offset_in_block = i % SUPERBLOCK.block_size;
+    DISK[disk_start + offset_in_block] = buffer[i];
   }
 
   const updated = {
@@ -293,7 +299,7 @@ export function write(inode, buffer) {
   return n;
 }
 
-export function append(inode, buffer, offset = 0) {
+export function fappend(inode, buffer, offset = 0) {
   const { id, size } = inode;
   offset = offset === 0 ? size : offset;
   const n = buffer.length;
@@ -308,8 +314,9 @@ export function append(inode, buffer, offset = 0) {
       return -1;
     }
 
-    const disk_index = SUPERBLOCK.inode_table_size + offset + (block * SUPERBLOCK.block_size) + i;
-    DISK[disk_index] = buffer[i];
+    const disk_start = block_start(block);
+    const offset_in_block = (offset + i) % SUPERBLOCK.block_size;
+    DISK[disk_start + offset_in_block] = buffer[i];
   }
   return n;
 }
@@ -356,7 +363,7 @@ export function mkdir(path) {
 
   // Update parent reference
   const parent_buffer = _create_dir_entry({ name: name, inode_id: inode_id });
-  if (append(parent_inode, parent_buffer) === -1) {
+  if (fappend(parent_inode, parent_buffer) === -1) {
     return -1;
   };
 
@@ -493,10 +500,10 @@ function parse_dir_file(buffer) {
 
 function create_root_dir() {
   const root_inode = {
-    id: 1,
+    id: next_inode(),
     type: DIR,
     size: 2 * ENTRY_SIZE,
-    blocks: [1, 0, 0],
+    blocks: [next_block(), 0, 0],
     ctime: now(),
     atime: now(),
     mtime: now(),
@@ -508,9 +515,12 @@ function create_root_dir() {
   write(root_inode, new Uint8Array(buffer));
 }
 
-async function init() {
+export function init() {
   create_root_dir();
-  ["/bin", "/code", "/root", "/home", "/home/micky", "/sys", "/var", "/tmp"].map(p => mkdir(p));
+  for (let i = 0; i < 10; i++) {
+    console.log(block_start(i));
+  }
 }
 
-init();
+
+

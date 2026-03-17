@@ -1,5 +1,5 @@
 import { string_to_ascii } from "../ascii.js";
-import { append, create } from "../disk.js";
+import { fappend, create } from "../disk.js";
 
 export function touch(args) {
   const path = args[0];
@@ -9,7 +9,7 @@ export function touch(args) {
     return -1;
   }
   const buffer = string_to_ascii(content);
-  append(fd, buffer);
+  fappend(fd, buffer);
 }
 
 
